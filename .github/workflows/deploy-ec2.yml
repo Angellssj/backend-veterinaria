@@ -1,0 +1,130 @@
+# Compila backend (Spring Boot) y frontend (React/Vite) y los despliega en una EC2.
+#
+#  - En cada Pull Request: solo compila y corre los tests (no toca la EC2).
+#  - En cada push a main (o con "Run workflow"): compila y despliega.
+#
+# Secretos necesarios (Settings → Secrets and variables → Actions → New repository secret):
+#   EC2_HOST     IP pública o DNS de la instancia (ej: 3.89.120.45)
+#   EC2_SSH_KEY  contenido completo del archivo .pem de la instancia
+#   EC2_USER     (opcional) "ubuntu" en Ubuntu, "ec2-user" en Amazon Linux. Por defecto: ubuntu
+#
+# Ver DEPLOY-EC2.md para el paso a paso.
+
+name: Deploy EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Compilar y probar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: veterinaria/pom.xml
+
+      - name: Backend - compilar y correr tests
+        working-directory: veterinaria
+        run: mvn -B package
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend - compilar
+        working-directory: frontend
+        env:
+          # El frontend llama a /api en el mismo dominio; Nginx lo reenvía al backend.
+          VITE_API_URL: /api
+        run: |
+          npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+          npm run build
+
+      - name: Empaquetar
+        run: |
+          mkdir -p paquete
+          cp veterinaria/target/veterinaria.jar paquete/
+          tar -czf paquete/frontend.tgz -C frontend/dist .
+          cp deploy/ec2-setup.sh paquete/
+          ls -lh paquete
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paquete
+          path: paquete/
+          retention-days: 7
+
+  deploy:
+    name: Desplegar en EC2
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      EC2_HOST: ${{ secrets.EC2_HOST }}
+      EC2_USER: ${{ secrets.EC2_USER || 'ubuntu' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: paquete
+          path: paquete
+
+      - name: Revisar secretos
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          if [ -z "$EC2_HOST" ] || [ -z "$EC2_SSH_KEY" ]; then
+            echo "::error::Faltan los secretos EC2_HOST y/o EC2_SSH_KEY (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+
+      - name: Configurar SSH
+        env:
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$EC2_SSH_KEY" | tr -d '\r' > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          cat > ~/.ssh/config <<EOF
+          Host ec2
+            HostName $EC2_HOST
+            User $EC2_USER
+            IdentityFile ~/.ssh/ec2.pem
+            StrictHostKeyChecking accept-new
+            ConnectTimeout 20
+            ServerAliveInterval 30
+          EOF
+
+      - name: Subir paquete
+        run: |
+          ssh ec2 'rm -rf /tmp/veterinaria-deploy && mkdir -p /tmp/veterinaria-deploy'
+          scp paquete/* ec2:/tmp/veterinaria-deploy/
+
+      - name: Instalar y reiniciar en la EC2
+        run: ssh ec2 "sudo bash /tmp/veterinaria-deploy/ec2-setup.sh /tmp/veterinaria-deploy '$EC2_HOST'"
+
+      - name: Comprobar desde internet
+        run: |
+          curl -fsS --retry 10 --retry-delay 3 --retry-all-errors "http://$EC2_HOST/api/health"
+          echo
+          curl -fsS "http://$EC2_HOST/api/products" | head -c 300
+          echo
+          curl -fsS "http://$EC2_HOST/" | grep -q '<div id="root">'
+          echo "### Desplegado: http://$EC2_HOST" >> "$GITHUB_STEP_SUMMARY"
+          echo "Swagger: http://$EC2_HOST/swagger-ui.html" >> "$GITHUB_STEP_SUMMARY"
