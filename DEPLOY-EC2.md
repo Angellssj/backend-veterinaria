@@ -1,64 +1,75 @@
-# Despliegue automático en EC2 con GitHub Actions
+# Despliegue automático en EC2 con GitHub Actions (runner self-hosted)
 
-Cada push a `main` compila el backend (Spring Boot) y el frontend (React), y los instala en la EC2:
+Cada push a `main` compila el backend (Spring Boot) y el frontend (React) en GitHub, y un **runner instalado dentro de la EC2** los despliega:
 
 ```
-Navegador ──► http://IP-EC2  (Nginx :80)
-                 ├── /            → frontend React (/var/www/veterinaria)
-                 ├── /api/...     → backend Spring Boot (127.0.0.1:8080, servicio "veterinaria")
-                 └── /swagger-ui  → documentación de la API
+GitHub Actions ──(compila en ubuntu-latest)──► artefacto
+       ▲
+       │ el runner de la EC2 pregunta "¿hay trabajo?" (conexión saliente HTTPS)
+       │
+EC2 ── runner ─► instala jar + frontend ─► Nginx :80
+                    ├── /            → frontend React (/var/www/veterinaria)
+                    ├── /api/...     → backend Spring Boot (127.0.0.1:8080, servicio "veterinaria")
+                    └── /swagger-ui  → documentación de la API
 ```
 
+- **Sin SSH desde internet y sin llaves en GitHub**: la EC2 solo necesita el puerto 80 abierto.
 - Base de datos **H2 en memoria**: no hay persistencia. Cada despliegue o reinicio vuelve a los 6 productos y a los usuarios demo (`admin@sanmarcos.cl / Admin123!`, `cliente@sanmarcos.cl / Cliente123!`).
-- En los Pull Requests solo se compila y se corren los tests; la EC2 no se toca.
-- El workflow está en `.github/workflows/deploy-ec2.yml` y el instalador en `deploy/ec2-setup.sh`.
+- En los Pull Requests solo se compila y se corren los tests.
 
-## 1. Preparar la EC2 (una sola vez)
+## 1. Instalar el runner en la EC2 (una sola vez)
 
-1. **AMI:** Ubuntu 24.04 o 22.04 (también sirve Amazon Linux 2023). Basta con una `t2.micro` o `t3.micro`.
-2. **Security Group → Inbound rules:**
-   | Tipo | Puerto | Origen | Para qué |
-   |---|---|---|---|
-   | SSH | 22 | 0.0.0.0/0 | GitHub Actions entra por SSH (sus IPs cambian) |
-   | HTTP | 80 | 0.0.0.0/0 | La página |
-3. *(Recomendado)* Asocia una **Elastic IP** para que la IP no cambie al reiniciar la instancia.
+1. En GitHub: **Settings → Actions → Runners → New self-hosted runner**, elige **Linux** y **x64**.
+2. Abre una terminal en la EC2 (EC2 Instance Connect o Termius) y pega, en orden, los comandos de las secciones **Download** y **Configure** que muestra GitHub (traen tu token; no lo compartas).
+   - Si `./config.sh` reclama librerías que faltan: `sudo ./bin/installdependencies.sh` y vuelve a ejecutarlo.
+   - Cuando pregunte **"Enter any additional labels"**, escribe: `ec2`
+   - En las demás preguntas, Enter (valores por defecto).
+3. **No** ejecutes `./run.sh`. En su lugar, déjalo como servicio (arranca solo al reiniciar la instancia):
+   ```bash
+   sudo ./svc.sh install
+   sudo ./svc.sh start
+   ```
+4. En **Settings → Actions → Runners** debe aparecer con estado **Idle** (verde) y las etiquetas `self-hosted`, `Linux`, `X64`, `ec2`.
 
-No hay que instalar nada a mano: el workflow instala Java 21 y Nginx la primera vez.
+## 2. Security Group (grupo `Backend`)
 
-## 2. Cargar los secretos en GitHub (una sola vez)
+| Tipo | Puerto | Origen | Para qué |
+|---|---|---|---|
+| HTTP | 80 | `0.0.0.0/0` | La página |
+| SSH | 22 | Lista de prefijos `com.amazonaws.us-east-1.ec2-instance-connect` | Seguir entrando con EC2 Instance Connect desde la consola |
+| SSH | 22 | *Mi IP* (opcional) | Entrar con Termius desde tu PC |
 
-En el repo: **Settings → Secrets and variables → Actions → New repository secret**
-
-| Nombre | Valor |
-|---|---|
-| `EC2_HOST` | IP pública (o DNS) de la instancia, ej. `3.89.120.45` |
-| `EC2_SSH_KEY` | Todo el contenido del archivo `.pem`, desde `-----BEGIN` hasta `-----END ...-----` |
-| `EC2_USER` | Solo si **no** es Ubuntu: `ec2-user` para Amazon Linux |
-
-Para copiar el `.pem` en Windows (PowerShell): `Get-Content .\mi-llave.pem | Set-Clipboard`
+Elimina la regla SSH `0.0.0.0/0`: el runner no la necesita.
 
 ## 3. Desplegar
 
-- Haz merge a `main` (o push directo), **o**
+- Push o merge a `main`, **o**
 - **Actions → Deploy EC2 → Run workflow**.
 
-Al terminar, el resumen del workflow muestra la URL. Abre `http://EC2_HOST`.
+Jobs: **Compilar y probar** (GitHub) → **Desplegar en EC2** (tu runner) → **Comprobar desde internet** (GitHub). El resumen muestra la URL.
 
-## Revisar la EC2 (Termius / SSH)
+## Seguridad del runner (repo público)
+
+En **Settings → Actions → General → Approval for running fork pull request workflows from contributors**, elige **Require approval for all external contributors**. Así nadie de afuera puede hacer correr código en tu EC2 abriendo un PR.
+
+## AWS Academy Learner Lab
+
+- Al cerrarse el lab la instancia se detiene; al iniciarlo de nuevo, el runner y la app arrancan solos.
+- La IP pública cambia en cada sesión (salvo que asocies una **IP elástica**). El workflow detecta la IP actual sola.
+
+## Revisar la EC2
 
 ```bash
-sudo systemctl status veterinaria nginx     # estado de los servicios
+sudo systemctl status veterinaria nginx     # estado de la app y Nginx
 sudo journalctl -u veterinaria -f           # logs del backend en vivo
-curl http://127.0.0.1:8080/api/health       # backend directo
-sudo systemctl restart veterinaria          # reiniciar (vuelve a los datos iniciales)
+cd ~/actions-runner && sudo ./svc.sh status # estado del runner
 ```
 
 ## Problemas comunes
 
-| Síntoma en Actions | Causa probable |
+| Síntoma | Causa probable |
 |---|---|
-| `Faltan los secretos EC2_HOST y/o EC2_SSH_KEY` | No se cargaron los secretos del paso 2 |
-| `Connection timed out` en *Subir paquete* | El Security Group no permite el puerto 22, o la IP cambió |
-| `Permission denied (publickey)` | `.pem` incompleto o `EC2_USER` incorrecto (`ubuntu` / `ec2-user`) |
-| Falla *Comprobar desde internet* pero la EC2 dice "Listo" | El Security Group no permite el puerto 80 |
+| *Desplegar en EC2* queda en **Queued / Waiting for a runner** | Runner apagado o sin la etiqueta `ec2` (ver Settings → Actions → Runners) |
+| `sudo: a password is required` | El runner se instaló con un usuario sin sudo; usar `ubuntu` o `ec2-user` |
 | `El backend no respondió` | Ver los logs que imprime el paso; o `sudo journalctl -u veterinaria -n 100` |
+| Falla *Comprobar desde internet* | El Security Group no permite el puerto 80 |
