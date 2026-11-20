@@ -19,15 +19,6 @@ jobs:
   verify:
     name: Probar backend y stack Docker
     runs-on: ubuntu-latest
-    env:
-      SPRING_PORT: 8080
-      HTTP_PORT: 8081
-      MYSQL_PASSWORD: ci_mysql_password_123456
-      MYSQL_ROOT_PASSWORD: ci_root_password_123456
-      JWT_SECRET: ci_jwt_secret_123456789012345678901234567890
-      APP_ADMIN_EMAIL: admin@sanmarcos.cl
-      APP_ADMIN_PASSWORD: ci_admin_password_123456
-      APP_SEED_DEMO_CLIENT: "false"
     steps:
       - name: Checkout backend
         uses: actions/checkout@v4
@@ -52,6 +43,21 @@ jobs:
       - name: Backend - compilar y correr tests
         working-directory: backend/veterinaria
         run: bash ./mvnw -B package
+
+      - name: Variables del stack Docker
+        # Se definen después de los tests de Maven: los tests usan los valores por defecto
+        # (Admin123!, cliente demo) y no deben heredar estas variables.
+        run: |
+          cat >> "$GITHUB_ENV" <<'EOF'
+          SPRING_PORT=8080
+          HTTP_PORT=8081
+          MYSQL_PASSWORD=ci_mysql_password_123456
+          MYSQL_ROOT_PASSWORD=ci_root_password_123456
+          JWT_SECRET=ci_jwt_secret_123456789012345678901234567890
+          APP_ADMIN_EMAIL=admin@sanmarcos.cl
+          APP_ADMIN_PASSWORD=ci_admin_password_123456
+          APP_SEED_DEMO_CLIENT=false
+          EOF
 
       - name: Compose - validar y construir imágenes
         run: |
