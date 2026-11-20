@@ -11,7 +11,8 @@ proyecto/
 
 El backend usa Spring Boot 4 · Java 21 · MySQL · Flyway. El Compose está en la raíz
 del repositorio backend, construye la API desde `veterinaria/` y el frontend desde
-la carpeta hermana `../frontend`. El navegador llama a la API por el puerto 8080.
+la carpeta hermana `../frontend`. Nginx (contenedor frontend) sirve la web y reenvía
+`/api` al backend, así que todo funciona por el puerto 80 sin depender de la IP pública.
 
 ## Ejecutar con Docker
 
@@ -26,8 +27,7 @@ docker compose -f docker-compose.aws.yml up --build -d
 ```
 
 Ejecuta estos comandos desde la carpeta del repositorio backend. Configura en `.env`
-una IP pública (para local, `localhost`), puertos y
-contraseñas nuevas para MySQL, root de MySQL, administrador y JWT. Para generar
+puertos y contraseñas nuevas para MySQL, root de MySQL, administrador y JWT. Para generar
 secretos hexadecimales en Linux:
 
 ```bash
@@ -35,8 +35,8 @@ openssl rand -hex 32
 openssl rand -hex 48
 ```
 
-Abre <http://localhost/>. La API se expone en <http://localhost:8080/api/health> y Swagger en
-<http://localhost:8080/swagger-ui.html>. El puerto 3306 no se publica.
+Abre <http://localhost/>. La API responde en <http://localhost/api/health> y Swagger en
+<http://localhost/swagger-ui.html>. El 8080 solo escucha en 127.0.0.1 y el 3306 no se publica.
 
 ## Base de datos y migraciones
 
@@ -56,9 +56,16 @@ y perder la base.
 
 ## AWS EC2
 
-Sigue [DEPLOY-EC2.md](DEPLOY-EC2.md) para crear la instancia, configurar el Security
-Group y ejecutar Docker Compose. Clona el repositorio frontend como carpeta hermana
-`frontend` junto a `backend`, ya que Compose usa `../frontend` como contexto.
+Sigue [DEPLOY-EC2.md](DEPLOY-EC2.md). En resumen, con el puerto 80 abierto en el
+Security Group:
+
+```bash
+mkdir -p ~/vetsm-app && cd ~/vetsm-app
+git clone https://github.com/Angellssj/backend-veterinaria.git backend
+bash backend/deploy/ec2-deploy.sh
+```
+
+El script clona el frontend como carpeta hermana `frontend`, genera `.env` y levanta todo.
 
 La aplicación de ejemplo usa HTTP. No introduzcas credenciales reales hasta configurar
 HTTPS y proteger los puertos de la API.

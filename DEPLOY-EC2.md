@@ -1,167 +1,137 @@
-# Despliegue de Veterinaria San Marcos en AWS EC2
+# Despliegue de Veterinaria San Marcos en AWS EC2 (Docker)
 
-La estructura sigue la de referencia: `backend` y `frontend` son carpetas hermanas.
-`backend/docker-compose.aws.yml` construye la API Spring Boot desde
-`backend/veterinaria/`, MySQL y el frontend React desde `../frontend`, servido por Nginx.
+`docker-compose.aws.yml` levanta tres contenedores: MySQL, la API Spring Boot y el
+frontend React servido por Nginx. Nginx también reenvía `/api` al backend, así que
+**todo entra por el puerto 80** y el frontend no depende de la IP pública de la instancia.
 
 ```text
-Navegador ── :80 ──► Nginx + React
-Navegador ── :8080 ► API Spring Boot ──► MySQL 8.4
-                                     └──► Flyway migra el esquema
+Navegador ── :80 ──► Nginx ──► archivos React (/, /categorias, ...)
+                         └──► /api, /swagger-ui ──► Spring Boot :8080 ──► MySQL 8.4
+                                                            └──► Flyway migra el esquema
 ```
 
-La API se publica directamente en el puerto 8080, por lo que `VITE_API_URL` se fija
-durante la compilación como `http://PUBLIC_IP:SPRING_PORT/api`. El backend admite como
-origen CORS el origen del frontend.
+Se usan dos repositorios clonados como carpetas hermanas:
+
+```text
+~/vetsm-app/
+├── backend/    https://github.com/Angellssj/backend-veterinaria
+└── frontend/   https://github.com/Roselin2831/VETERINARIA_SAN_MARCOS
+```
+
+Como el frontend llama a `/api` (ruta relativa), si la IP de la EC2 cambia (por ejemplo,
+al reiniciar el laboratorio de AWS Academy) **no hay que recompilar nada**: basta con
+entrar con la IP nueva.
 
 ## 1. Crear la instancia EC2
 
-En AWS Academy, crea una instancia Ubuntu Server 22.04/24.04 x86_64. La guía de
-referencia propone `t2.micro`/`t3.micro`; compilar Java y Node en una instancia de 1 GiB
-puede agotar memoria. Usa al menos 2 GiB si el laboratorio lo permite.
+- AMI: **Ubuntu Server 24.04 (o 22.04)**, x86_64.
+- Tipo: `t3.small` (2 GiB) recomendado. `t2.micro`/`t3.micro` funciona porque el
+  script crea 2 GiB de swap, pero la primera compilación tarda bastante más.
+- Disco: 16 GiB o más (las imágenes de Maven, Node y MySQL ocupan espacio).
+- Par de claves: descarga el `.pem` (por ejemplo `vetsm-key.pem`).
 
-Configura el Security Group:
+Security Group, reglas de entrada:
 
 | Tipo | Puerto | Origen | Motivo |
 |---|---:|---|---|
 | SSH | 22 | My IP | Administración |
-| HTTP | 80 | `0.0.0.0/0` | Sitio React |
-| Custom TCP | 8080 | `0.0.0.0/0` | API consumida por el navegador |
+| HTTP | 80 | `0.0.0.0/0` | Sitio web + API (`/api`) |
 
-No abras 3306 (MySQL) ni 5173 (Vite). El puerto 8080 es necesario porque el navegador
-accede directamente a la API; si no debe estar público, habrá que configurar HTTPS y
-un proxy inverso para servir `/api` por el mismo origen.
+No abras 3306 (MySQL) ni 8080: la API ya es accesible en `http://<IP>/api`.
 
-## 2. Instalar Docker y Git
+## 2. Conectarse
 
-Conecta usando la clave `.pem`:
+Desde PowerShell, en la carpeta donde está la clave:
 
-```bash
-chmod 400 vetsm-key.pem
+```powershell
 ssh -i vetsm-key.pem ubuntu@<IP_PUBLICA_EC2>
 ```
 
-En la instancia:
+Si `ssh` reclama que la clave tiene permisos demasiado abiertos:
+
+```powershell
+icacls vetsm-key.pem /inheritance:r /grant:r "$($env:USERNAME):R"
+```
+
+## 3. Desplegar
+
+En la EC2:
 
 ```bash
-sudo apt update
-sudo apt install -y docker.io docker-compose-v2 git openssl
-sudo systemctl enable --now docker
-sudo usermod -aG docker "$USER"
+sudo apt-get update && sudo apt-get install -y git
+mkdir -p ~/vetsm-app && cd ~/vetsm-app
+git clone https://github.com/Angellssj/backend-veterinaria.git backend
+bash backend/deploy/ec2-deploy.sh
 ```
 
-Vuelve a iniciar sesión SSH para aplicar el grupo `docker`, luego verifica:
+El script:
+
+1. Instala Docker, Docker Compose y Git si faltan.
+2. Clona el frontend en `~/vetsm-app/frontend` (y en las siguientes ejecuciones hace
+   `git pull` de ambos repositorios).
+3. Detiene el Nginx o el servicio `veterinaria` instalados fuera de Docker por el
+   despliegue anterior, para liberar el puerto 80.
+4. Crea 2 GiB de swap si la instancia no tiene.
+5. Genera `backend/.env` con contraseñas y JWT aleatorios (solo la primera vez) y
+   muestra la contraseña del administrador `admin@sanmarcos.cl`.
+6. Construye las imágenes, levanta los contenedores, espera a que `/api/health`
+   responda y muestra las URLs públicas.
+
+Al terminar, abre en el navegador:
+
+- Sitio: `http://<IP_PUBLICA_EC2>/`
+- API: `http://<IP_PUBLICA_EC2>/api/health` y `/api/products`
+- Swagger: `http://<IP_PUBLICA_EC2>/swagger-ui.html`
+
+Para ver de nuevo la contraseña del administrador: `grep ADMIN ~/vetsm-app/backend/.env`.
+
+## 4. Actualizar después de cambiar el código
+
+Haz push a GitHub y luego, en la EC2:
 
 ```bash
-docker --version
-docker compose version
+bash ~/vetsm-app/backend/deploy/ec2-deploy.sh
 ```
 
-## 3. Poner los repositorios como hermanos
+Trae los cambios de ambos repositorios y reconstruye. La base de datos se conserva en
+el volumen `mysql_data` y `.env` no se modifica.
 
-Crea la carpeta de aplicación y clona **tus repositorios**, no los de ejemplo del
-compañero:
+## 5. Comandos útiles
 
-```bash
-mkdir -p ~/vetsm-app
-cd ~/vetsm-app
-git clone --branch deploy/docker-compose-mysql --single-branch https://github.com/Angellssj/backend-veterinaria.git backend
-git clone --branch deploy/docker-compose-mysql --single-branch https://github.com/Roselin2831/VETERINARIA_SAN_MARCOS.git frontend
-```
-
-El Compose está en la raíz del backend; compila Java desde `./veterinaria` y usa
-`../frontend` como contexto de build.
-Verifica la disposición:
-
-```text
-~/vetsm-app/backend/docker-compose.aws.yml
-~/vetsm-app/backend/veterinaria/Dockerfile
-~/vetsm-app/frontend/Dockerfile
-```
-
-Ejecuta Compose desde `backend`. Para probar otra rama, clona ambos repositorios con
-el mismo nombre de rama en el parámetro `--branch`.
-
-## 4. Configurar el entorno
-
-```bash
-cd ~/vetsm-app/backend
-cp .env.example .env
-nano .env
-```
-
-Completa los valores:
-
-```env
-PUBLIC_IP=<IP_PUBLICA_EC2>
-SPRING_PORT=8080
-HTTP_PORT=80
-MYSQL_PASSWORD=<CLAVE_MYSQL_NUEVA>
-MYSQL_ROOT_PASSWORD=<CLAVE_ROOT_MYSQL_NUEVA>
-JWT_SECRET=<SECRETO_ALEATORIO_DE_32_BYTES_O_MAS>
-APP_ADMIN_EMAIL=admin@sanmarcos.cl
-APP_ADMIN_PASSWORD=<CLAVE_ADMIN_NUEVA>
-APP_SEED_DEMO_CLIENT=false
-CORS_ALLOWED_ORIGINS=
-```
-
-Genera secretos con `openssl rand -hex 32` (contraseñas) y
-`openssl rand -hex 48` (JWT). No reutilices valores ilustrativos ni subas `.env`.
-Restringe sus permisos:
-
-```bash
-chmod 600 .env
-```
-
-Si `HTTP_PORT` no es 80, define también `CORS_ALLOWED_ORIGINS` como
-`http://<IP_PUBLICA_EC2>:<HTTP_PORT>`. El valor vacío usa `http://PUBLIC_IP`.
-
-## 5. Construir y desplegar
-
-Desde la carpeta backend:
-
-```bash
-docker compose -f docker-compose.aws.yml config
-docker compose -f docker-compose.aws.yml up --build -d
-```
-
-La primera compilación puede demorar. MySQL usa un volumen persistente y debe pasar
-su healthcheck antes de iniciar la API. Flyway ejecuta las migraciones versionadas de
-`veterinaria/src/main/resources/db/migration`; Hibernate valida las tablas.
-
-## 6. Verificar
+Desde `~/vetsm-app/backend`:
 
 ```bash
 docker compose -f docker-compose.aws.yml ps
 docker compose -f docker-compose.aws.yml logs -f backend
 docker compose -f docker-compose.aws.yml logs -f frontend
-docker compose -f docker-compose.aws.yml logs -f mysql
+docker compose -f docker-compose.aws.yml restart backend
+docker compose -f docker-compose.aws.yml down        # detiene y conserva los datos
 ```
 
-Desde un navegador:
+**No uses `down -v`**: borra el volumen y pierdes la base de datos.
 
-- Frontend: `http://<IP_PUBLICA_EC2>/`
-- API health: `http://<IP_PUBLICA_EC2>:8080/api/health`
-- Catálogo: `http://<IP_PUBLICA_EC2>:8080/api/products`
-- Swagger: `http://<IP_PUBLICA_EC2>:8080/swagger-ui.html`
+Los contenedores tienen `restart: unless-stopped`: si detienes y vuelves a iniciar la
+instancia (o el laboratorio), Docker los levanta solos. Solo cambia la IP pública.
 
-## 7. Datos y reinicios
+## 6. Problemas frecuentes
 
-Para detener o actualizar servicios sin eliminar datos:
+| Síntoma | Causa y solución |
+|---|---|
+| El navegador no carga nada | Falta la regla HTTP 80 en el Security Group, o el navegador forzó `https://`: escribe `http://`. |
+| La página carga pero dice "No se pudo conectar con el servidor" | El backend aún arranca o falló: `docker compose -f docker-compose.aws.yml logs backend`. |
+| `Bind for 0.0.0.0:80 failed: port is already allocated` | Otro programa usa el puerto 80: `sudo ss -ltnp 'sport = :80'` y detenlo. |
+| La compilación se corta con `Killed` / `exit code 137` | Falta memoria: revisa la swap con `free -h` o usa `t3.small`. |
+| `permission denied ... docker.sock` | Cierra la sesión SSH y vuelve a entrar (grupo `docker`), o usa `sudo`. |
+| Error de Flyway / tablas al arrancar | La base tiene un esquema anterior incompatible. Si son datos de prueba: `down -v` y vuelve a desplegar. |
 
-```bash
-docker compose -f docker-compose.aws.yml down
-docker compose -f docker-compose.aws.yml up --build -d
-```
+## 7. Opcional: exponer la API en el puerto 8080
 
-`down` conserva el volumen MySQL. `down -v` elimina también la base de datos. El
-volumen permanece en el disco de la instancia: haz backups fuera de EC2 para evitar
-pérdida ante eliminación o fallo del disco.
+No hace falta para el sitio. Si quieres llamar a la API directamente por el 8080,
+pon `SPRING_BIND=0.0.0.0` en `backend/.env`, abre el 8080 en el Security Group y vuelve
+a ejecutar el script.
 
 ## Límites de seguridad
 
-Esta configuración es para la demostración del curso: la web y API usan HTTP. No
-envíes contraseñas reales ni datos sensibles; añade HTTPS antes de usarla públicamente.
-No publiques el puerto 3306. Si usas `t2.micro`/`t3.micro` y la compilación termina por
-falta de memoria, detén servicios que no uses, agrega swap o cambia a una instancia
-con más memoria.
+Esta configuración es para la demostración del curso: la web usa HTTP sin cifrar. No
+envíes contraseñas reales ni datos sensibles; añade HTTPS (dominio + certificado) antes
+de usarla públicamente. Haz backups de la base fuera de la EC2 si los datos importan.
