@@ -155,6 +155,27 @@ class ApiIntegrationTests {
     }
 
     @Test
+    void productosTienenFotoYSeValidaLaUrl() throws Exception {
+        // El catálogo inicial trae foto (migración V3)
+        HttpResponse<String> list = call("GET", "/api/products", null, null);
+        assertTrue(list.body().contains("\"imageUrl\":\"/img/productos/alimento-perro.webp\""), list.body());
+
+        String admin = login("admin@sanmarcos.cl", "Admin123!");
+        String base = "{\"name\":\"Cama para gato\",\"category\":\"Higiene\",\"price\":15990,\"stock\":3,"
+                + "\"offer\":false,\"description\":\"Cama acolchada.\",\"emoji\":\"🐱\",\"imageUrl\":\"%s\"}";
+        HttpResponse<String> ok = call("POST", "/api/products", base.formatted("/img/productos/gato.webp"), admin);
+        assertEquals(201, ok.statusCode(), ok.body());
+        assertTrue(ok.body().contains("\"imageUrl\":\"/img/productos/gato.webp\""), ok.body());
+
+        HttpResponse<String> sinFoto = call("POST", "/api/products", base.formatted(""), admin);
+        assertEquals(201, sinFoto.statusCode(), sinFoto.body());
+        assertTrue(sinFoto.body().contains("\"imageUrl\":null"), sinFoto.body());
+
+        assertEquals(400, call("POST", "/api/products", base.formatted("javascript:alert(1)"), admin).statusCode());
+        assertEquals(400, call("POST", "/api/products", base.formatted("http://inseguro.cl/a.jpg"), admin).statusCode());
+    }
+
+    @Test
     void pedidoCalculaTotalEnServidorYValidaStock() throws Exception {
         String cliente = login("cliente@sanmarcos.cl", "Cliente123!");
         // Producto 4 = Snack dental, $4.290

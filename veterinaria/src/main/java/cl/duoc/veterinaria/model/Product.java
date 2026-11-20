@@ -47,6 +47,10 @@ public class Product {
     @Column(nullable = false, length = 16)
     private String emoji;
 
+    /** Foto opcional: ruta del frontend (/img/...) o URL https. Si es null, se muestra el emoji. */
+    @Column(name = "image_url", length = 255)
+    private String imageUrl;
+
     /**
      * Eliminación lógica: un producto "eliminado" queda inactivo para no romper
      * el historial de pedidos que lo referencian.
