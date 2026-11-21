@@ -1,5 +1,9 @@
 # Despliegue en AWS · Veterinaria San Marcos
 
+> **Alternativa no utilizada.** El despliegue real del proyecto es una EC2 con Docker
+> Compose por el puerto 80: sigue [DEPLOY-EC2.md](DEPLOY-EC2.md). Esta guía (S3 +
+> Elastic Beanstalk + RDS) se conserva solo como referencia.
+
 Arquitectura (todo en la **misma región**, recomendado `us-east-1` — es la que usa AWS Academy):
 
 ```text
