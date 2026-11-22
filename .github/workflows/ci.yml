@@ -1,5 +1,4 @@
-# Prueba el backend y el stack completo (MySQL + Spring Boot + frontend con Nginx)
-# tal como se despliega en la EC2: repositorios hermanos backend/ y frontend/.
+# Valida backend, frontend y el arranque integrado con MySQL/Flyway.
 name: CI VetSM
 
 on:
@@ -7,10 +6,6 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
-    inputs:
-      frontend_ref:
-        description: Rama del repositorio frontend a probar
-        default: main
 
 permissions:
   contents: read
@@ -20,17 +15,7 @@ jobs:
     name: Probar backend y stack Docker
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout backend
-        uses: actions/checkout@v4
-        with:
-          path: backend
-
-      - name: Checkout frontend
-        uses: actions/checkout@v4
-        with:
-          repository: Roselin2831/VETERINARIA_SAN_MARCOS
-          ref: ${{ inputs.frontend_ref || 'main' }}
-          path: frontend
+      - uses: actions/checkout@v4
 
       - name: Java 21
         uses: actions/setup-java@v4
@@ -38,15 +23,27 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-          cache-dependency-path: backend/veterinaria/pom.xml
+          cache-dependency-path: backend/pom.xml
 
       - name: Backend - compilar y correr tests
-        working-directory: backend/veterinaria
+        working-directory: backend
         run: bash ./mvnw -B package
 
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Frontend - compilar
+        working-directory: frontend
+        env:
+          VITE_API_URL: /api
+        run: npm ci --no-audit --no-fund && npm run build
+
       - name: Variables del stack Docker
-        # Se definen después de los tests de Maven: los tests usan los valores por defecto
-        # (Admin123!, cliente demo) y no deben heredar estas variables.
+        # Despues de los tests de Maven: los tests usan los valores por defecto.
         run: |
           cat >> "$GITHUB_ENV" <<'EOF'
           SPRING_PORT=8080
@@ -59,31 +56,26 @@ jobs:
           APP_SEED_DEMO_CLIENT=false
           EOF
 
-      - name: Compose - validar y construir imágenes
-        run: |
-          docker compose -f backend/docker-compose.aws.yml config --quiet
-          docker compose -f backend/docker-compose.aws.yml build
+      - name: Compose - validar configuracion y construir imagenes
+        run: docker compose -f backend/docker-compose.aws.yml config --quiet && docker compose -f backend/docker-compose.aws.yml build
 
-      - name: Smoke test a través de Nginx (igual que el navegador)
+      - name: Smoke test con MySQL y Flyway
         run: |
           docker compose -f backend/docker-compose.aws.yml up -d
           for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8081/api/health >/dev/null; then break; fi
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then break; fi
             sleep 2
           done
-          curl -fsS http://127.0.0.1:8081/api/health
-          curl -fsS http://127.0.0.1:8081/api/products | head -c 200; echo
+          curl -fsS http://127.0.0.1:8080/api/health
+          curl -fsS http://127.0.0.1:8080/api/products
           curl -fsS http://127.0.0.1:8081/ | grep -q '<div id="root">'
+          # El navegador usa la API a traves de Nginx (mismo origen)
+          curl -fsS http://127.0.0.1:8081/api/health
+          curl -fsS http://127.0.0.1:8081/api/products | head -c 200
           curl -fsS -o /dev/null http://127.0.0.1:8081/categorias
-          # Login con cabecera Origin del mismo sitio: no debe bloquearlo CORS
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8081/api/auth/login \
-            -H 'Origin: http://127.0.0.1:8081' -H 'Content-Type: application/json' \
-            -d "{\"email\":\"$APP_ADMIN_EMAIL\",\"password\":\"$APP_ADMIN_PASSWORD\"}")
-          echo "login: $code"; test "$code" = 200
-
-      - name: Logs si falla
-        if: failure()
-        run: docker compose -f backend/docker-compose.aws.yml logs --tail=100
+          # Un POST con cabecera Origin del mismo sitio no debe ser bloqueado por CORS (403)
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8081/api/auth/login             -H 'Origin: http://127.0.0.1:8081' -H 'Content-Type: application/json'             -d '{"email":"admin@sanmarcos.cl","password":"ci_admin_password_123456"}')
+          test "$code" = 200
 
       - name: Limpiar contenedores y base temporal
         if: always()
