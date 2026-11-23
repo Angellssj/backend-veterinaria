@@ -1,8 +1,8 @@
 *.sh text eol=lf
 *.yml text eol=lf
 Dockerfile text eol=lf
-*.pdf -text
-*.xlsx -text
-*.jpg -text
-*.png -text
-*.webp -text
+*.pdf binary
+*.xlsx binary
+*.jpg binary
+*.png binary
+*.webp binary
