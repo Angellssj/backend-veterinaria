@@ -33,7 +33,9 @@ case "$ID" in
     fi
     ;;
   amzn)
-    "${SUDO[@]}" yum install -y curl openssl jq git gzip
+    "${SUDO[@]}" yum install -y openssl jq git gzip
+    # AL2023 ya incluye curl-minimal; no sustituirlo por el paquete curl completo.
+    if ! command -v curl >/dev/null 2>&1; then "${SUDO[@]}" yum install -y curl; fi
     if ! command -v docker >/dev/null 2>&1; then
       if [ "${VERSION_ID:-}" = 2 ] && command -v amazon-linux-extras >/dev/null 2>&1; then
         "${SUDO[@]}" amazon-linux-extras install docker -y
