@@ -1,0 +1,211 @@
+[
+  [
+    "GET",
+    "/api/v1/health",
+    "Estado del servicio",
+    "Sin cuerpo",
+    "200",
+    "Pública",
+    "No",
+    "Todos",
+    "No prueba por sí solo la conexión a la base de datos."
+  ],
+  [
+    "POST",
+    "/api/v1/auth/register",
+    "Crear un cliente",
+    "{name,email,password}",
+    "201; 400; 409",
+    "Pública",
+    "No",
+    "Visitante",
+    "El servidor asigna CLIENTE. Contraseña de 6 a 72 caracteres, hasta 72 bytes UTF-8."
+  ],
+  [
+    "POST",
+    "/api/v1/auth/login",
+    "Iniciar sesión",
+    "{email,password}",
+    "200; 400; 401",
+    "Pública",
+    "Credenciales",
+    "Todos",
+    "Devuelve accessToken, refreshToken, tokenType y user."
+  ],
+  [
+    "POST",
+    "/api/v1/auth/refresh",
+    "Renovar el par de tokens",
+    "{refreshToken}",
+    "200; 400; 401",
+    "Pública",
+    "Refresh válido",
+    "Sesión vigente",
+    "Se rota el secreto. El token anterior no se puede reutilizar."
+  ],
+  [
+    "POST",
+    "/api/v1/auth/logout",
+    "Revocar la sesión actual",
+    "Sin cuerpo",
+    "204; 401",
+    "Privada",
+    "Bearer",
+    "CLIENTE; VENDEDOR; ADMIN",
+    "Revoca acceso y renovación de esa sesión, no otras sesiones del usuario."
+  ],
+  [
+    "GET",
+    "/api/v1/auth/me",
+    "Consultar el usuario autenticado",
+    "Sin cuerpo",
+    "200; 401",
+    "Privada",
+    "Bearer",
+    "CLIENTE; VENDEDOR; ADMIN",
+    "El rol se lee de la base de datos, no del rol almacenado en el navegador."
+  ],
+  [
+    "GET",
+    "/api/v1/products",
+    "Consultar el catálogo activo",
+    "Query opcional: category, offer, q",
+    "200; 400",
+    "Pública",
+    "No",
+    "Todos",
+    "El frontend consume el catálogo desde la API; no usa mockDb en ejecución."
+  ],
+  [
+    "GET",
+    "/api/v1/products/{id}",
+    "Consultar detalle del producto",
+    "id numérico",
+    "200; 400; 404",
+    "Pública",
+    "No",
+    "Todos",
+    "Incluye categoría, precio, stock, oferta, descripción, emoji y imageUrl."
+  ],
+  [
+    "GET",
+    "/api/v1/categories",
+    "Consultar categorías",
+    "Sin cuerpo",
+    "200",
+    "Pública",
+    "No",
+    "Todos",
+    "Categorías iniciales: Alimentos, Higiene y Salud."
+  ],
+  [
+    "POST",
+    "/api/v1/products",
+    "Crear producto",
+    "{name,category,price,stock,offer,description,emoji,imageUrl}",
+    "201; 400; 401; 403",
+    "Privada",
+    "Bearer",
+    "ADMIN",
+    "Precio y stock enteros no negativos. Foto HTTPS o ruta /img/."
+  ],
+  [
+    "PUT",
+    "/api/v1/products/{id}",
+    "Actualizar producto",
+    "id y mismo cuerpo de creación",
+    "200; 400; 401; 403; 404",
+    "Privada",
+    "Bearer",
+    "ADMIN",
+    "Reemplaza todos los campos editables. La foto persiste en la base de datos."
+  ],
+  [
+    "DELETE",
+    "/api/v1/products/{id}",
+    "Eliminar producto lógicamente",
+    "id numérico",
+    "204; 400; 401; 403; 404",
+    "Privada",
+    "Bearer",
+    "ADMIN",
+    "Conserva referencias de pedidos históricos y deja de aparecer en el catálogo."
+  ],
+  [
+    "POST",
+    "/api/v1/orders",
+    "Registrar pedido",
+    "{name,email,address,delivery,payment,items:[{productId,quantity}]}",
+    "201; 400; 401; 403; 409",
+    "Privada",
+    "Bearer",
+    "CLIENTE; ADMIN",
+    "Precios, total y stock se calculan y validan en el servidor. No procesa un cobro bancario."
+  ],
+  [
+    "GET",
+    "/api/v1/orders/mine",
+    "Consultar pedidos propios",
+    "Sin cuerpo",
+    "200; 401; 403",
+    "Privada",
+    "Bearer",
+    "CLIENTE; ADMIN",
+    "Filtra por el identificador del usuario autenticado."
+  ],
+  [
+    "GET",
+    "/api/v1/orders",
+    "Consultar todos los pedidos",
+    "Sin cuerpo",
+    "200; 401; 403",
+    "Privada",
+    "Bearer",
+    "VENDEDOR; ADMIN",
+    "Solo consulta para VENDEDOR."
+  ],
+  [
+    "GET",
+    "/api/v1/orders/{id}",
+    "Consultar detalle del pedido",
+    "id numérico",
+    "200; 400; 401; 403; 404",
+    "Privada",
+    "Bearer",
+    "VENDEDOR; ADMIN",
+    "Incluye cliente, entrega, ítems, total y estado."
+  ],
+  [
+    "PATCH",
+    "/api/v1/orders/{id}/status",
+    "Cambiar estado del pedido",
+    "{status}",
+    "200; 400; 401; 403; 404; 409",
+    "Privada",
+    "Bearer",
+    "ADMIN",
+    "CONFIRMADO, EN_PREPARACION, DESPACHADO, ENTREGADO o CANCELADO. No retrocede; entregado y cancelado son finales."
+  ],
+  [
+    "GET",
+    "/api/v1/users",
+    "Consultar usuarios",
+    "Sin cuerpo",
+    "200; 401; 403",
+    "Privada",
+    "Bearer",
+    "ADMIN",
+    "No devuelve hashes de contraseña."
+  ],
+  [
+    "PATCH",
+    "/api/v1/users/{id}/role",
+    "Asignar rol",
+    "{role}",
+    "200; 400; 401; 403; 404",
+    "Privada",
+    "Bearer",
+    "ADMIN",
+    "CLIENTE, VENDEDOR o ADMIN. No permite cambiar el propio rol."
+  ]
+]

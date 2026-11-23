@@ -1,5 +1,13 @@
 # Veterinaria San Marcos
 
+Para la instancia existente de **Amazon Linux con IP pública**, sigue
+[DEPLOY-AMAZON-LINUX.md](DEPLOY-AMAZON-LINUX.md). La guía descarga ambos repositorios
+y ejecuta MySQL, backend y frontend con comprobaciones de arranque.
+
+La API publicada usa `/api/v1`. Se conservan las rutas `/api` como compatibilidad.
+Los roles son ADMIN, VENDEDOR y CLIENTE. Documentos, manual y evidencia de EP3:
+[docs/RUBRICA_EP3.md](docs/RUBRICA_EP3.md).
+
 Proyecto organizado en carpetas hermanas, siguiendo la estructura de despliegue de
 referencia:
 

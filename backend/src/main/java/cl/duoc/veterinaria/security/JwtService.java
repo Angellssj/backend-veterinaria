@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Optional;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -41,17 +42,25 @@ public class JwtService {
         this.refreshTtl = Duration.ofDays(refreshDays);
     }
 
-    public String createAccessToken(User user) {
-        return build(user, ACCESS, accessTtl);
+    public String createAccessToken(User user, String sessionId) {
+        return build(user, sessionId, ACCESS, accessTtl);
     }
 
-    public String createRefreshToken(User user) {
-        return build(user, REFRESH, refreshTtl);
+    public String createRefreshToken(User user, String sessionId) {
+        return build(user, sessionId, REFRESH, refreshTtl);
     }
 
-    private String build(User user, String type, Duration ttl) {
+    public Instant refreshExpiresAt() {
+        return Instant.now().plus(refreshTtl);
+    }
+
+    public record TokenIdentity(Long userId, String sessionId) { }
+
+    private String build(User user, String sessionId, String type, Duration ttl) {
         Instant now = Instant.now();
         return Jwts.builder()
+                .id(UUID.randomUUID().toString())
+                .claim("sid", sessionId)
                 .subject(String.valueOf(user.getId()))
                 .claim("email", user.getEmail())
                 .claim("role", user.getRole().name())
@@ -66,13 +75,15 @@ public class JwtService {
      * Valida firma, expiración y tipo. Devuelve el id del usuario si el token es válido.
      * El rol NO se toma del token: se vuelve a leer desde la base de datos.
      */
-    public Optional<Long> validate(String token, String expectedType) {
+    public Optional<TokenIdentity> validate(String token, String expectedType) {
         try {
             Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
             if (!expectedType.equals(claims.get("type", String.class))) {
                 return Optional.empty();
             }
-            return Optional.of(Long.valueOf(claims.getSubject()));
+            String sessionId = claims.get("sid", String.class);
+            if (sessionId == null || sessionId.isBlank()) return Optional.empty();
+            return Optional.of(new TokenIdentity(Long.valueOf(claims.getSubject()), sessionId));
         } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }

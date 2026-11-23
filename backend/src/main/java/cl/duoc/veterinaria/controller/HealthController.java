@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Salud")
 public class HealthController {
 
-    @GetMapping({"/", "/api/health"})
+    @GetMapping({"/", "/api/v1/health", "/api/health"})
     public Map<String, Object> health() {
         return Map.of("ok", true, "service", "veterinaria-san-marcos");
     }

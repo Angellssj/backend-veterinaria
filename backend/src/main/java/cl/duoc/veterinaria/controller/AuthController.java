@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping({"/api/v1/auth", "/api/auth"})
 @Tag(name = "Autenticación")
 public class AuthController {
 
@@ -49,6 +49,15 @@ public class AuthController {
         return auth.refresh(req.refreshToken());
     }
 
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Cerrar y revocar la sesión actual")
+    public void logout(@AuthenticationPrincipal AuthUser user) {
+        auth.logout(user.sessionId());
+    }
+
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
     @GetMapping("/me")
     @Operation(summary = "Usuario de la sesión actual (rol leído desde la base de datos)")
     public UserDto me(@AuthenticationPrincipal AuthUser user) {

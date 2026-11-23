@@ -33,7 +33,7 @@ public class UserService {
         try {
             role = Role.valueOf(rawRole.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw ApiException.badRequest("Rol inválido. Use: CLIENTE o ADMIN.");
+            throw ApiException.badRequest("Rol inválido. Use: CLIENTE, VENDEDOR o ADMIN.");
         }
         User user = users.findById(id).orElseThrow(() -> ApiException.notFound("Usuario no encontrado."));
         user.setRole(role);

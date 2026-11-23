@@ -8,3 +8,8 @@
 /frontend/.env.*
 !/frontend/.env.example
 *.pem
+
+.cache/
+backups/
+*.partial
+docs/*.inspect.ndjson

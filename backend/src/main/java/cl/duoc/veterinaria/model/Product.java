@@ -47,6 +47,9 @@ public class Product {
     @Column(nullable = false, length = 16)
     private String emoji;
 
+    @Column(name = "image_url", length = 1000)
+    private String imageUrl;
+
     /**
      * Eliminación lógica: un producto "eliminado" queda inactivo para no romper
      * el historial de pedidos que lo referencian.

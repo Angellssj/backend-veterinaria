@@ -16,6 +16,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Optional<Product> findByIdAndActiveTrue(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from Product p where p.id = :id")
+    Optional<Product> findForUpdate(@Param("id") Long id);
+
     /**
      * Igual que findByIdAndActiveTrue, pero bloquea la fila (SELECT ... FOR UPDATE)
      * hasta que termine la transacción: dos compras simultáneas no pueden vender el mismo stock.

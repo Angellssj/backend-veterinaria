@@ -5,3 +5,10 @@ target/
 !.env.example
 .idea/
 *.iml
+
+.cache/
+coverage/
+playwright-report/
+test-results/
+e2e/
+docs/

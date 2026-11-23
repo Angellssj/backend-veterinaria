@@ -17,7 +17,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/users")
+@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+@RequestMapping({"/api/v1/users", "/api/users"})
 @Tag(name = "Usuarios (ADMIN)")
 public class UserController {
 

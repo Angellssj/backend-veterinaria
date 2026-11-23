@@ -45,7 +45,7 @@ public class OrderService {
     public OrderDto create(Long userId, CreateOrderRequest req) {
         User user = users.findById(userId).orElseThrow(() -> ApiException.unauthorized("Usuario no encontrado."));
 
-        Map<Long, Integer> quantities = new LinkedHashMap<>();
+        Map<Long, Integer> quantities = new java.util.TreeMap<>();
         for (ItemRequest item : req.items()) {
             quantities.merge(item.productId(), item.quantity(), Integer::sum);
         }
@@ -101,6 +101,12 @@ public class OrderService {
         return orders.findAllByOrderByCreatedAtDesc().stream().map(OrderDto::from).toList();
     }
 
+    @Transactional(readOnly = true)
+    public OrderDto get(Long id) {
+        return orders.findById(id).map(OrderDto::from)
+                .orElseThrow(() -> ApiException.notFound("Pedido no encontrado."));
+    }
+
     /**
      * Cambia el estado (solo ADMIN). Un pedido CANCELADO ya no cambia.
      * Al cancelar, el stock de cada producto se devuelve al inventario.
@@ -108,13 +114,20 @@ public class OrderService {
     @Transactional
     public OrderDto updateStatus(Long id, String rawStatus) {
         OrderStatus status = parseStatus(rawStatus);
-        Order order = orders.findById(id).orElseThrow(() -> ApiException.notFound("Pedido no encontrado."));
+        Order order = orders.findForUpdate(id).orElseThrow(() -> ApiException.notFound("Pedido no encontrado."));
         if (order.getStatus() == OrderStatus.CANCELADO) {
             throw ApiException.conflict("El pedido #" + id + " está cancelado y no se puede modificar.");
         }
+        if (order.getStatus() == OrderStatus.ENTREGADO && status != OrderStatus.ENTREGADO) {
+            throw ApiException.conflict("Un pedido entregado no se puede modificar.");
+        }
+        if (status != OrderStatus.CANCELADO && status.ordinal() < order.getStatus().ordinal()) {
+            throw ApiException.conflict("El pedido no puede volver a un estado anterior.");
+        }
         if (status == OrderStatus.CANCELADO) {
             for (OrderItem item : order.getItems()) {
-                Product product = item.getProduct();
+                Product product = products.findForUpdate(item.getProduct().getId())
+                        .orElseThrow(() -> ApiException.notFound("Producto no encontrado."));
                 product.setStock(product.getStock() + item.getQuantity());
             }
         }

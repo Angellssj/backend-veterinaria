@@ -1,49 +1,39 @@
-# Valida backend, frontend y el arranque integrado con MySQL/Flyway.
 name: CI VetSM
-
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
 jobs:
-  verify:
-    name: Probar backend y stack Docker
+  stack:
+    name: Backend, frontend y MySQL integrados
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - name: Java 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
           cache-dependency-path: backend/pom.xml
-
-      - name: Backend - compilar y correr tests
+      - name: Backend y pruebas HTTP
         working-directory: backend
-        run: bash ./mvnw -B package
-
-      - name: Node 20
-        uses: actions/setup-node@v4
+        run: bash ./mvnw -B -ntp package
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
-      - name: Frontend - compilar
+      - name: Frontend y pruebas unitarias
         working-directory: frontend
         env:
-          VITE_API_URL: /api
-        run: npm ci --no-audit --no-fund && npm run build
-
-      - name: Variables del stack Docker
-        # Despues de los tests de Maven: los tests usan los valores por defecto.
+          VITE_API_URL: /api/v1
+          CHROME_BIN: /usr/bin/google-chrome
+        run: npm ci --no-audit --no-fund && npm test && npm run build
+      - name: Configuración temporal de pruebas
         run: |
           cat >> "$GITHUB_ENV" <<'EOF'
           SPRING_PORT=8080
@@ -52,31 +42,36 @@ jobs:
           MYSQL_ROOT_PASSWORD=ci_root_password_123456
           JWT_SECRET=ci_jwt_secret_123456789012345678901234567890
           APP_ADMIN_EMAIL=admin@sanmarcos.cl
-          APP_ADMIN_PASSWORD=ci_admin_password_123456
-          APP_SEED_DEMO_CLIENT=false
+          APP_ADMIN_PASSWORD=Admin123!
+          APP_SEED_DEMO_CLIENT=true
           EOF
-
-      - name: Compose - validar configuracion y construir imagenes
-        run: docker compose -f backend/docker-compose.aws.yml config --quiet && docker compose -f backend/docker-compose.aws.yml build
-
-      - name: Smoke test con MySQL y Flyway
+      - name: Construir y levantar el stack
         run: |
-          docker compose -f backend/docker-compose.aws.yml up -d
-          for attempt in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then break; fi
-            sleep 2
-          done
-          curl -fsS http://127.0.0.1:8080/api/health
-          curl -fsS http://127.0.0.1:8080/api/products
-          curl -fsS http://127.0.0.1:8081/ | grep -q '<div id="root">'
-          # El navegador usa la API a traves de Nginx (mismo origen)
-          curl -fsS http://127.0.0.1:8081/api/health
-          curl -fsS http://127.0.0.1:8081/api/products | head -c 200
-          curl -fsS -o /dev/null http://127.0.0.1:8081/categorias
-          # Un POST con cabecera Origin del mismo sitio no debe ser bloqueado por CORS (403)
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8081/api/auth/login             -H 'Origin: http://127.0.0.1:8081' -H 'Content-Type: application/json'             -d '{"email":"admin@sanmarcos.cl","password":"ci_admin_password_123456"}')
-          test "$code" = 200
-
-      - name: Limpiar contenedores y base temporal
+          docker compose -f backend/docker-compose.aws.yml config --quiet
+          docker compose -f backend/docker-compose.aws.yml build
+          docker compose -f backend/docker-compose.aws.yml up -d --wait --wait-timeout 300
+      - name: Verificar scripts y acceso a través de Nginx
+        run: |
+          for script in deploy/*.sh; do bash -n "$script"; done
+          bash deploy/verificar.sh
+      - name: Navegador contra MySQL y Nginx
+        working-directory: frontend
+        env:
+          FRONTEND_URL: http://127.0.0.1:8081
+          API_URL: http://127.0.0.1:8081/api/v1
+        run: npm run test:e2e
+      - name: Evidencia
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pruebas-stack
+          path: |
+            backend/target/surefire-reports/
+            frontend/coverage/
+            frontend/playwright-report/
+      - name: Logs en caso de fallo
+        if: failure()
+        run: docker compose -f backend/docker-compose.aws.yml logs --tail=100
+      - name: Limpiar el entorno temporal de CI
         if: always()
         run: docker compose -f backend/docker-compose.aws.yml down -v

@@ -27,7 +27,7 @@ public final class OrderDtos {
             @NotBlank(message = "La dirección es obligatoria.") @Size(max = 255, message = "Máximo 255 caracteres.") String address,
             @Size(max = 60, message = "Máximo 60 caracteres.") String delivery,
             @Size(max = 60, message = "Máximo 60 caracteres.") String payment,
-            @NotEmpty(message = "El carrito está vacío.") @Size(max = 50, message = "Demasiados productos en un pedido.") List<@Valid ItemRequest> items) {
+            @NotEmpty(message = "El carrito está vacío.") @Size(max = 50, message = "Demasiados productos en un pedido.") List<@NotNull(message = "El producto no puede ser nulo.") @Valid ItemRequest> items) {
     }
 
     public record ItemRequest(
