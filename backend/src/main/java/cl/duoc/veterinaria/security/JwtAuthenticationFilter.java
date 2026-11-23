@@ -20,11 +20,13 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final cl.duoc.veterinaria.repository.LoginSessionRepository sessions;
     private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
+    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository, cl.duoc.veterinaria.repository.LoginSessionRepository sessions) {
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.sessions = sessions;
     }
 
     @Override
@@ -35,13 +37,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && SecurityContextHolder.getContext().getAuthentication() == null) {
             String token = header.substring(7).trim();
             jwtService.validate(token, JwtService.ACCESS)
-                    .flatMap(userRepository::findById)
-                    .ifPresent(user -> {
-                        AuthUser principal = new AuthUser(user.getId(), user.getEmail(), user.getRole());
+                    .filter(identity -> sessions.existsByIdAndUser_IdAndRevokedFalseAndExpiresAtAfter(
+                            identity.sessionId(), identity.userId(), java.time.Instant.now()))
+                    .ifPresent(identity -> userRepository.findById(identity.userId()).ifPresent(user -> {
+                        AuthUser principal = new AuthUser(user.getId(), user.getEmail(), user.getRole(), identity.sessionId());
                         var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
                         var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
                         SecurityContextHolder.getContext().setAuthentication(authentication);
-                    });
+                    }));
         }
         chain.doFilter(request, response);
     }

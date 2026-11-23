@@ -45,6 +45,7 @@ public class DataInitializer implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         createIfMissing("Administración San Marcos", adminEmail, adminPassword, Role.ADMIN);
         if (demoClient) {
+            createIfMissing("Vendedor Demo", "vendedor@sanmarcos.cl", "Vendedor123!", Role.VENDEDOR);
             createIfMissing("Cliente Demo", "cliente@sanmarcos.cl", "Cliente123!", Role.CLIENTE);
         }
     }

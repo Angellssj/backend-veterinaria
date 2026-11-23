@@ -81,6 +81,7 @@ public class ProductService {
         product.setDescription(req.description().trim());
         String emoji = req.emoji() == null || req.emoji().isBlank() ? "🐾" : req.emoji().trim();
         product.setEmoji(emoji);
+        product.setImageUrl(req.imageUrl() == null || req.imageUrl().isBlank() ? null : req.imageUrl().trim());
     }
 
     private String categoryNames() {

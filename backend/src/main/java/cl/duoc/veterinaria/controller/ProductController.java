@@ -16,10 +16,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@RequestMapping({"/api/v1", "/api"})
 @Tag(name = "Productos")
 public class ProductController {
 
@@ -29,7 +31,7 @@ public class ProductController {
         this.service = service;
     }
 
-    @GetMapping("/api/products")
+    @GetMapping("/products")
     @Operation(summary = "Catálogo (público). Filtros opcionales: ?category=Salud&offer=true&q=perro")
     public List<ProductDto> list(@RequestParam(required = false) String category,
                                  @RequestParam(required = false) Boolean offer,
@@ -37,32 +39,35 @@ public class ProductController {
         return service.list(category, offer, q);
     }
 
-    @GetMapping("/api/products/{id}")
+    @GetMapping("/products/{id}")
     @Operation(summary = "Detalle de un producto (público)")
     public ProductDto get(@PathVariable Long id) {
         return service.get(id);
     }
 
-    @GetMapping("/api/categories")
+    @GetMapping("/categories")
     @Operation(summary = "Categorías (público)")
     public List<CategoryDto> categories() {
         return service.categories();
     }
 
-    @PostMapping("/api/products")
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+    @PostMapping("/products")
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(summary = "Crear producto (ADMIN)")
     public ProductDto create(@Valid @RequestBody ProductRequest req) {
         return service.create(req);
     }
 
-    @PutMapping("/api/products/{id}")
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+    @PutMapping("/products/{id}")
     @Operation(summary = "Editar producto (ADMIN)")
     public ProductDto update(@PathVariable Long id, @Valid @RequestBody ProductRequest req) {
         return service.update(id, req);
     }
 
-    @DeleteMapping("/api/products/{id}")
+    @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+    @DeleteMapping("/products/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Eliminar producto (ADMIN, eliminación lógica)")
     public void delete(@PathVariable Long id) {

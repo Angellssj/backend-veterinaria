@@ -10,6 +10,13 @@ import cl.duoc.veterinaria.model.User;
 import cl.duoc.veterinaria.repository.UserRepository;
 import cl.duoc.veterinaria.security.JwtService;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.UUID;
+import cl.duoc.veterinaria.model.LoginSession;
+import cl.duoc.veterinaria.repository.LoginSessionRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,17 +29,22 @@ public class AuthService {
     private final UserRepository users;
     private final PasswordEncoder encoder;
     private final JwtService jwt;
+    private final LoginSessionRepository sessions;
 
-    public AuthService(UserRepository users, PasswordEncoder encoder, JwtService jwt) {
+    public AuthService(UserRepository users, PasswordEncoder encoder, JwtService jwt, LoginSessionRepository sessions) {
         this.users = users;
         this.encoder = encoder;
         this.jwt = jwt;
+        this.sessions = sessions;
     }
 
     /** Todo usuario que se registra desde la web queda como CLIENTE. */
     @Transactional
     public AuthResponse register(RegisterRequest req) {
-        String email = req.email().trim().toLowerCase();
+        if (req.password().getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw ApiException.badRequest("La contraseña no puede superar 72 bytes UTF-8.");
+        }
+        String email = req.email().trim().toLowerCase(java.util.Locale.ROOT);
         if (users.existsByEmailIgnoreCase(email)) {
             throw ApiException.conflict("Este correo ya está registrado.");
         }
@@ -40,7 +52,7 @@ public class AuthService {
         return tokensFor(user);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponse login(LoginRequest req) {
         // BCrypt solo considera 72 bytes; una contraseña más larga nunca es válida aquí
         if (req.password().getBytes(StandardCharsets.UTF_8).length > 72) {
@@ -52,13 +64,23 @@ public class AuthService {
         return tokensFor(user);
     }
 
-    /** Entrega un par nuevo de tokens si el refreshToken es válido y el usuario sigue existiendo. */
-    @Transactional(readOnly = true)
+    /** La renovación rota el secreto y bloquea la fila para que no pueda reutilizarse. */
+    @Transactional
     public AuthResponse refresh(String refreshToken) {
-        User user = jwt.validate(refreshToken, JwtService.REFRESH)
-                .flatMap(users::findById)
+        var identity = jwt.validate(refreshToken, JwtService.REFRESH)
                 .orElseThrow(() -> ApiException.unauthorized("Sesión expirada. Inicia sesión nuevamente."));
-        return tokensFor(user);
+        LoginSession session = sessions.findForUpdate(identity.sessionId())
+                .filter(s -> !s.isRevoked() && s.getExpiresAt().isAfter(Instant.now()))
+                .filter(s -> s.getUser().getId().equals(identity.userId()))
+                .filter(s -> MessageDigest.isEqual(s.getRefreshHash().getBytes(StandardCharsets.UTF_8),
+                        hash(refreshToken).getBytes(StandardCharsets.UTF_8)))
+                .orElseThrow(() -> ApiException.unauthorized("Token de renovación inválido o utilizado."));
+        return rotate(session);
+    }
+
+    @Transactional
+    public void logout(String sessionId) {
+        sessions.findForUpdate(sessionId).ifPresent(s -> s.setRevoked(true));
     }
 
     @Transactional(readOnly = true)
@@ -69,6 +91,28 @@ public class AuthService {
     }
 
     private AuthResponse tokensFor(User user) {
-        return new AuthResponse(jwt.createAccessToken(user), jwt.createRefreshToken(user), UserDto.from(user));
+        LoginSession session = new LoginSession();
+        session.setId(UUID.randomUUID().toString());
+        session.setUser(user);
+        AuthResponse response = rotate(session);
+        sessions.save(session);
+        return response;
+    }
+
+    private AuthResponse rotate(LoginSession session) {
+        String refresh = jwt.createRefreshToken(session.getUser(), session.getId());
+        session.setRefreshHash(hash(refresh));
+        session.setExpiresAt(jwt.refreshExpiresAt());
+        return new AuthResponse(jwt.createAccessToken(session.getUser(), session.getId()), refresh,
+                UserDto.from(session.getUser()));
+    }
+
+    private static String hash(String token) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 }

@@ -1,0 +1,44 @@
+name: Validación backend EP3
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: veterinaria
+          MYSQL_USER: veterinaria_app
+          MYSQL_PASSWORD: ci-only-password
+          MYSQL_ROOT_PASSWORD: ci-only-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-only-root-password"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: chmod +x mvnw && ./mvnw -B -ntp verify
+        env:
+          SPRING_PROFILES_ACTIVE: prod
+          DB_URL: jdbc:mysql://127.0.0.1:3306/veterinaria?serverTimezone=UTC
+          DB_USERNAME: veterinaria_app
+          DB_PASSWORD: ci-only-password
+          APP_ADMIN_PASSWORD: Admin123!
+          APP_SEED_DEMO_CLIENT: 'true'
+          JWT_SECRET: ci-only-secret-for-tests-at-least-32-bytes-2026
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pruebas-mysql
+          path: backend/target/surefire-reports/

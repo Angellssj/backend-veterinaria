@@ -40,7 +40,7 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtService jwtService,
-                                                   UserRepository userRepository) throws Exception {
+                                                   UserRepository userRepository, cl.duoc.veterinaria.repository.LoginSessionRepository sessions) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable) // API sin cookies: el token va en la cabecera
                 .cors(Customizer.withDefaults())
@@ -48,31 +48,30 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .headers(h -> h.frameOptions(f -> f.sameOrigin())) // permite la consola H2 en desarrollo
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/", "/api/health", "/error").permitAll()
-                        .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                        .requestMatchers("/h2-console/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/register", "/api/auth/refresh").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/products", "/api/products/*", "/api/categories").permitAll()
-                        // Productos: solo ADMIN modifica
-                        .requestMatchers(HttpMethod.POST, "/api/products").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/products/*").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/products/*").hasRole("ADMIN")
-                        // Pedidos
-                        .requestMatchers(HttpMethod.GET, "/api/orders/mine").authenticated()
-                        .requestMatchers(HttpMethod.POST, "/api/orders").authenticated()
-                        .requestMatchers(HttpMethod.GET, "/api/orders").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PATCH, "/api/orders/*/status").hasRole("ADMIN")
-                        // Usuarios y roles
-                        .requestMatchers("/api/users", "/api/users/**").hasRole("ADMIN")
-                        .anyRequest().authenticated())
+                .authorizeHttpRequests(auth -> {
+                    auth.requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers("/", "/error", "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/h2-console/**").permitAll();
+                    for (String base : List.of("/api/v1", "/api")) {
+                        auth.requestMatchers(base + "/health").permitAll()
+                            .requestMatchers(HttpMethod.POST, base + "/auth/login", base + "/auth/register", base + "/auth/refresh").permitAll()
+                            .requestMatchers(HttpMethod.GET, base + "/products", base + "/products/*", base + "/categories").permitAll()
+                            .requestMatchers(HttpMethod.POST, base + "/products").hasRole("ADMIN")
+                            .requestMatchers(HttpMethod.PUT, base + "/products/*").hasRole("ADMIN")
+                            .requestMatchers(HttpMethod.DELETE, base + "/products/*").hasRole("ADMIN")
+                            .requestMatchers(HttpMethod.GET, base + "/orders/mine").hasAnyRole("CLIENTE", "ADMIN")
+                            .requestMatchers(HttpMethod.POST, base + "/orders").hasAnyRole("CLIENTE", "ADMIN")
+                            .requestMatchers(HttpMethod.GET, base + "/orders", base + "/orders/*").hasAnyRole("ADMIN", "VENDEDOR")
+                            .requestMatchers(HttpMethod.PATCH, base + "/orders/*/status").hasRole("ADMIN")
+                            .requestMatchers(base + "/users", base + "/users/**").hasRole("ADMIN");
+                    }
+                    auth.anyRequest().authenticated();
+                })
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((req, res, ex) ->
                                 writeError(res, HttpServletResponse.SC_UNAUTHORIZED, "Debes iniciar sesión."))
                         .accessDeniedHandler((req, res, ex) ->
                                 writeError(res, HttpServletResponse.SC_FORBIDDEN, "No tienes permisos para esta acción.")))
-                .addFilterBefore(new JwtAuthenticationFilter(jwtService, userRepository),
+                .addFilterBefore(new JwtAuthenticationFilter(jwtService, userRepository, sessions),
                         UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }

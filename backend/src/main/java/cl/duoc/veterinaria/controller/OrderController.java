@@ -21,7 +21,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/api/orders")
+@io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "bearerAuth")
+@RequestMapping({"/api/v1/orders", "/api/orders"})
 @Tag(name = "Pedidos")
 public class OrderController {
 
@@ -45,9 +46,15 @@ public class OrderController {
     }
 
     @GetMapping
-    @Operation(summary = "Todos los pedidos (ADMIN)")
+    @Operation(summary = "Todos los pedidos (ADMIN o VENDEDOR)")
     public List<OrderDto> all() {
         return service.all();
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Detalle de un pedido (ADMIN o VENDEDOR)")
+    public OrderDto get(@PathVariable Long id) {
+        return service.get(id);
     }
 
     @PatchMapping("/{id}/status")
