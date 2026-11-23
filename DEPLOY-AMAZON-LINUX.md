@@ -17,10 +17,32 @@ sudo yum install -y git
 git clone --branch codex/mejoras-rubrica-ep3 https://github.com/Angellssj/backend-veterinaria.git ~/vetsm-backend
 git clone --branch codex/mejoras-rubrica-ep3 https://github.com/Roselin2831/VETERINARIA_SAN_MARCOS.git ~/vetsm-frontend
 cd ~/vetsm-backend
-FRONTEND_DIR="$HOME/vetsm-frontend" bash deploy/ec2-deploy.sh
 ```
 
 Si las mejoras ya están integradas en `main`, se puede omitir `--branch codex/mejoras-rubrica-ep3` en ambos comandos. Si las carpetas ya existen, revisa su contenido antes de usarlas. No las borres para repetir el despliegue.
+
+Si ya funcionan los contenedores `backend-backend-1`, `backend-frontend-1` y `backend-mysql-1`, conserva las credenciales antes de actualizar. Identifica la carpeta de Compose con:
+
+```bash
+sudo docker inspect backend-backend-1 --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}'
+```
+
+En la instalación existente revisada, la carpeta es `~/vetsm-app/backend`. Copia su `.env` sin mostrarlo ni reemplazar uno que ya exista:
+
+```bash
+sudo cp -n ~/vetsm-app/backend/.env ~/vetsm-backend/backend/.env
+sudo chown ec2-user:ec2-user ~/vetsm-backend/backend/.env
+chmod 600 ~/vetsm-backend/backend/.env
+```
+
+Confirma que la ruta de origen corresponda a tu instalación. El script se detiene si encuentra un volumen MySQL existente y falta su configuración.
+
+Ahora inicia el despliegue:
+
+```bash
+cd ~/vetsm-backend
+FRONTEND_DIR="$HOME/vetsm-frontend" bash deploy/ec2-deploy.sh
+```
 
 ## Qué hace el comando
 
